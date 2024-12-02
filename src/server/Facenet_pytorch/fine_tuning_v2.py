@@ -102,9 +102,9 @@ class FineTuner(object):
 		# torch.cuda.set_device(rank)
 		
 		model = model.to(rank)
-		ddp_model = DDP(model, device_ids=[rank])
+		# ddp_model = DDP(model, device_ids=[rank])
 		
-		self.model = torch.compile(ddp_model,
+		self.model = torch.compile(model,
 						mode="reduce-overhead",
 						fullgraph = False)
 
