@@ -290,11 +290,13 @@ def training_loop( rank :int,
 		val_logs = {}
 
 		for epoch in range(1,trainer.num_epochs+1):
-			trainer.train_sampler.set_epoch(epoch)
+			if trainer.train_sampler is not None:		
+				trainer.train_sampler.set_epoch(epoch)
 			train_logs[f'Epoch_{epoch}'] = trainer._train(rank, world_size)
 
 			if trainer.num_epochs//epoch == 2 or epoch == trainer.num_epochs:
-				trainer.val_sampler.set_epoch(epoch)
+				if trainer.val_sampler is not None:
+					trainer.val_sampler.set_epoch(epoch)
 				val_logs[f'Epoch_{epoch}'] = trainer._eval(rank, world_size)
 
 			trainer.scheduler.step()
