@@ -56,9 +56,6 @@ class TripLetDataset_V2(torch.utils.data.Dataset):
 						random.sample(glob.glob("[0-9]*", root_dir = f"{data_folder_path}"), 
 									k = number_celeb_in_train)
 
-			with open('dataset.json', "w") as f:
-				json.dump([{ith:ele} for ith, ele in enumerate(glob_iter)], f, indent = 4)
-
 		else:
 			glob_iter = glob.glob("*_*",root_dir = f"{data_folder_path}")  + \
 						random.sample(glob.glob("[0-9]*", root_dir = f"{data_folder_path}"), 
@@ -90,7 +87,10 @@ class TripLetDataset_V2(torch.utils.data.Dataset):
 		}
 
 		return glob_iter, userIdx2other_usersIdx, user2img_path
-		
+	
+	def save_iter(self):
+		with open('dataset.json', "w") as f:
+			json.dump([{ith:ele} for ith, ele in enumerate(self.glob_iter)], f, indent = 4)
 
 	def __len__(self):
 		return len(self.index_iter)

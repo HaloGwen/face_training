@@ -99,12 +99,12 @@ class FineTuner(object):
 		# torch._dynamo.reset()
 		# import triton
 		
-		# torch.cuda.set_device(rank)
-		
+		torch.cuda.set_device(rank)		
 		model = model.to(rank)
   
 		if world_size > 1:
 			model = DDP(model, device_ids=[rank])
+			print('Using DDP wrapper')
 		
 		self.model = torch.compile(model,
 						mode="reduce-overhead",
@@ -155,6 +155,9 @@ class FineTuner(object):
 								p_n_ratio = p_n_ratio,
 								number_celeb_in_train = number_celeb_in_train
 		)
+		if is_train and rank ==0:
+			dataset.save_iter()
+  
 		if world_size > 1:
 			sampler = DistributedSampler(dataset, 
 										rank=rank, 
