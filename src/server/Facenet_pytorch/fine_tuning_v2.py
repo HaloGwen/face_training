@@ -80,10 +80,6 @@ class FineTuner(object):
 			'num_workers': num_workers
 		}
 
-		my_auto_wrap_policy = functools.partial(
-        							size_based_auto_wrap_policy, 
-        							min_num_params=25000)
-
 		model = InceptionResnetV1(pretrained = 'casia-webface', 
 								classify=False,
 								num_classes=None, 
@@ -103,7 +99,7 @@ class FineTuner(object):
 		# torch._dynamo.reset()
 		# import triton
 		
-		torch.cuda.set_device(rank)
+		# torch.cuda.set_device(rank)
 		
 		model = model.to(rank)
 		ddp_model = DDP(model, device_ids=[rank])
@@ -157,10 +153,13 @@ class FineTuner(object):
 								p_n_ratio = p_n_ratio,
 								number_celeb_in_train = number_celeb_in_train
 		)
-		sampler = DistributedSampler(dataset, 
-									rank=rank, 
-									num_replicas=world_size, 
-									shuffle=True if is_train else False)
+		if world_size > 1:
+			sampler = DistributedSampler(dataset, 
+										rank=rank, 
+										num_replicas=world_size, 
+										shuffle=True if is_train else False)
+		else:
+			sampler = None
 		
 		return (torch.utils.data.DataLoader(dataset, 
 										batch_size= batch_size,
@@ -241,6 +240,7 @@ class FineTuner(object):
 
 def training_loop( rank :int,
 					world_size:int,
+     				is_distributed:bool,
 					trainer_args: dict, 
 					save_path: str):
 	"""Main training function
@@ -248,33 +248,64 @@ def training_loop( rank :int,
 	creating the DataLoader iterator is necessary to make shuffling work properly across multiple 
 	epochs. Otherwise, the same ordering will be always used.
 	"""
-	setup(rank, world_size)
+	if is_distributed:
+		setup(rank, world_size)
+		
+		trainer_args['rank'] = rank
+		trainer_args['world_size'] = world_size
+		trainer = FineTuner(**trainer_args)
+
+		train_logs = {}
+		val_logs = {}
+
+		for epoch in range(1,trainer.num_epochs+1):
+			trainer.train_sampler.set_epoch(epoch)
+			train_logs[f'Epoch_{epoch}'] = trainer._train(rank, world_size)
+
+			if trainer.num_epochs//epoch == 2 or epoch == trainer.num_epochs:
+				trainer.val_sampler.set_epoch(epoch)
+				val_logs[f'Epoch_{epoch}'] = trainer._eval(rank, world_size)
+
+			trainer.scheduler.step()
+
+		if rank == 0:
+			print(train_logs)
+			print(val_logs)
+
+		dist.barrier()
+		state = trainer.model.state_dict()
+		# save checkpoints
+		if rank == 0:
+			torch.save(state, save_path)
+
+		cleanup()
+	else:
+		rank = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+		world_size = 1
+		trainer_args['rank'] = rank
+		trainer_args['world_size'] = world_size
+		trainer = FineTuner(**trainer_args)
+
+		train_logs = {}
+		val_logs = {}
+
+		for epoch in range(1,trainer.num_epochs+1):
+			trainer.train_sampler.set_epoch(epoch)
+			train_logs[f'Epoch_{epoch}'] = trainer._train(rank, world_size)
+
+			if trainer.num_epochs//epoch == 2 or epoch == trainer.num_epochs:
+				trainer.val_sampler.set_epoch(epoch)
+				val_logs[f'Epoch_{epoch}'] = trainer._eval(rank, world_size)
+
+			trainer.scheduler.step()
+
 	
-	trainer_args['rank'] = rank
-	trainer_args['world_size'] = world_size
-	trainer = FineTuner(**trainer_args)
-
-	train_logs = {}
-	val_logs = {}
-
-	for epoch in range(1,trainer.num_epochs+1):
-		trainer.train_sampler.set_epoch(epoch)
-		train_logs[f'Epoch_{epoch}'] = trainer._train(rank, world_size)
-
-		if trainer.num_epochs//epoch == 2 or epoch == trainer.num_epochs:
-			trainer.val_sampler.set_epoch(epoch)
-			val_logs[f'Epoch_{epoch}'] = trainer._eval(rank, world_size)
-
-		trainer.scheduler.step()
-
-	if rank == 0:
 		print(train_logs)
 		print(val_logs)
 
-	dist.barrier()
-	state = trainer.model.state_dict()
-	# save checkpoints
-	if rank == 0:
-		torch.save(state, save_path)
 
-	cleanup()
+		state = trainer.model.state_dict()
+		# save checkpoints
+
+		torch.save(state, save_path)
+    
